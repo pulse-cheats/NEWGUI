@@ -195,9 +195,21 @@ function PulseUI.CreateWindow(config)
         IgnoreGuiInset = true,
     }, GUI_PARENT)
 
+    -- window size: default 560x400, override with config.Size = {width, height}
+    local winW, winH = 560, 400
+    if type(config.Size) == "table" and #config.Size == 2 then
+        winW, winH = tonumber(config.Size[1]) or winW, tonumber(config.Size[2]) or winH
+    end
+
+    -- auto-scale down on small screens (mobile)
+    local okvp, vp = pcall(function() return workspace.CurrentCamera.ViewportSize end)
+    vp = (okvp and vp) or Vector2.new(1280, 720)
+    local scale = math.min(1, vp.X / (winW + 40), vp.Y / (winH + 40))
+    winW, winH = math.floor(winW * scale), math.floor(winH * scale)
+
     local main = new("Frame", {
-        Size = UDim2.fromOffset(760, 520),
-        Position = UDim2.new(0.5, -380, 0.5, -260),
+        Size = UDim2.fromOffset(winW, winH),
+        Position = UDim2.new(0.5, -winW / 2, 0.5, -winH / 2),
         BackgroundColor3 = Theme.Background,
         BorderSizePixel = 0,
         Active = true,
@@ -335,7 +347,7 @@ function PulseUI.CreateWindow(config)
 
         -- top tab button
         local tabBtn = new("TextButton", {
-            Size = UDim2.new(0, 118, 1, 0),
+            Size = UDim2.new(0, 100, 1, 0),
             BackgroundColor3 = Theme.Element,
             BackgroundTransparency = 1,
             Text = name,
@@ -868,6 +880,12 @@ function PulseUI.CreateWindow(config)
             main.Visible = not main.Visible
         end
     end)
+
+    -- open animation
+    main.Visible = true
+    local finalSize = UDim2.fromOffset(winW, winH)
+    main.Size = UDim2.fromOffset(0, 0)
+    tween(main, { Size = finalSize }, 0.3, Enum.EasingStyle.Back)
 
     Window.Gui = gui
     Window.Main = main
