@@ -107,8 +107,19 @@ end
 
 local assetCache = {}
 
+-- smart name resolution: "Home", "HOME", "home icon", "My_Tab" -> assets/<name>.png
+-- tries in order: exact, lowercase, lowercase-with-underscores, lowercase-no-spaces
+local function resolveAssetName(name)
+    name = tostring(name or "")
+    if name:match("%.png$") or name:match("%.jpg$") then return name end
+    local clean = name:gsub("%s+", "")
+    local lower = clean:lower()
+    return lower .. ".png"
+end
+
 local function loadAssetUrl(name)
-    -- returns rbx asset path or "" if unavailable
+    -- accepts "Home", "HOME_ICON", "home.png" etc. -> tries assets/<resolved>
+    name = resolveAssetName(name)
     if assetCache[name] ~= nil then return assetCache[name] end
     local result = ""
     local ok, res = pcall(function()
@@ -878,6 +889,85 @@ function PulseUI.CreateWindow(config)
     UserInputService.InputBegan:Connect(function(input, processed)
         if not processed and input.KeyCode == Enum.KeyCode.RightControl then
             main.Visible = not main.Visible
+        end
+    end)
+
+    --====================================================================--
+    -- RESTORE PILL (WindUI-style floating button, top-center of screen)
+    -- shown whenever the window is hidden
+    --====================================================================--
+    local pill = new("TextButton", {
+        Name = "RestorePill",
+        Size = UDim2.fromOffset(46, 30),
+        Position = UDim2.new(0.5, -23, 0, 6),
+        BackgroundColor3 = Theme.Background,
+        Text = "",
+        AutoButtonColor = false,
+        Visible = false,
+        ZIndex = 50,
+    }, gui)
+    corner(15, pill)
+    stroke(Theme.Stroke, 1.5, pill)
+    -- small shadow
+    new("ImageLabel", {
+        Size = UDim2.new(1, 14, 1, 14),
+        Position = UDim2.fromScale(0.5, 0.5),
+        AnchorPoint = Vector2.new(0.5, 0.5),
+        BackgroundTransparency = 1,
+        Image = "rbxassetid://5028857084",
+        ImageColor3 = Color3.fromRGB(0, 0, 0),
+        ImageTransparency = 0.92,
+        ScaleType = Enum.ScaleType.Slice,
+        ZIndex = 49,
+    }, pill)
+
+    local pillIcon, pillImg, pillGlyph = makeIcon(pill, "logo.png", "P", 20, 12, Theme.TextDim)
+    pillIcon.Position = UDim2.new(0.5, -10, 0.5, -10)
+    pillIcon.ZIndex = 51
+
+    -- pill drag support
+    do
+        local dragging, dragStart, startPos = false, nil, nil
+        pill.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1
+                or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                dragStart = input.Position
+                startPos = pill.Position
+                input.Changed:Connect(function()
+                    if input.UserInputState == Enum.UserInputState.End then
+                        dragging = false
+                    end
+                end)
+            end
+        end)
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+                or input.UserInputType == Enum.UserInputType.Touch) then
+                local delta = input.Position - dragStart
+                pill.Position = UDim2.new(
+                    startPos.X.Scale, startPos.X.Offset + delta.X,
+                    startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+            end
+        end)
+    end
+
+    local function updatePill()
+        pill.Visible = not main.Visible
+    end
+    updatePill()
+
+    -- click pill -> reopen window
+    pill.MouseButton1Click:Connect(function()
+        main.Visible = true
+        updatePill()
+    end)
+
+    -- keep pill in sync with visibility changes (RightControl, minimize etc.)
+    spawn(function()
+        while gui.Parent ~= nil do
+            updatePill()
+            wait(0.15)
         end
     end)
 
