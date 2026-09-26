@@ -1,34 +1,36 @@
 --[[
-    ██████╗ ██╗   ██╗██╗     ███████╗███████╗██╗   ██╗██╗
-    ██╔═══██╗██║   ██║██║     ██╔════╝██╔════╝██║   ██║██║
-    ██║   ██║██║   ██║██║     █████╗  ███████╗██║   ██║██║
-    ██║   ██║██║   ██║██║     ██╔══╝  ╚════██║╚██╗ ██╔╝██║
-    ╚██████╔╝╚██████╔╝███████╗███████╗╚██████╔╝ ╚████╔╝ ██║
-     ╚═════╝  ╚═════╝ ╚══════╝╚══════╝ ╚═════╝   ╚═══╝  ╚═╝
-
-    PulseUI v1.1  —  custom UI library
+    PulseUI v1.2 - Custom UI Library
     GitHub: github.com/pulse-cheats/NEWGUI
-    Assets: raw.githubusercontent.com/pulse-cheats/NEWGUI/main/assets/
-    Theme : white / gray
+    Theme:  white / gray
+
+    - NO default tabs. You create your own.
+    - Works on all executors (asset icons are optional, text fallback always works).
+    - Toggle UI: RightControl
 ]]
 
-print("[PulseUI] loading v1.1 ...")
+-- error wrapper so failures are visible in console
+local ok, PulseUI = pcall(function()
 
-local PulseUI = {}
+local Players          = game:GetService("Players")
+local TweenService     = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
--- // Services ---------------------------------------------------------
-local Players           = game:GetService("Players")
-local TweenService      = game:GetService("TweenService")
-local UserInputService  = game:GetService("UserInputService")
-local ContentProvider   = game:GetService("ContentProvider")
+local LocalPlayer = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait() and Players.LocalPlayer
 
-local LocalPlayer = Players.LocalPlayer
-local PlayerGui   = LocalPlayer:WaitForChild("PlayerGui")
+-- safest parent across executors
+local function getGuiParent()
+    if type(gethui) == "function" then
+        local ok, ui = pcall(gethui)
+        if ok and ui then return ui end
+    end
+    local ok, core = pcall(function() return game:GetService("CoreGui") end)
+    if ok and core then return core end
+    return LocalPlayer:WaitForChild("PlayerGui")
+end
 
--- // Config -----------------------------------------------------------
-local REPO_URL   = "https://raw.githubusercontent.com/pulse-cheats/NEWGUI/main/"
-local ASSET_URL  = REPO_URL .. "assets/"
-local ASSET_DIR  = "PulseUI/assets/"
+local GUI_PARENT = getGuiParent()
+
+local ASSET_URL = "https://raw.githubusercontent.com/pulse-cheats/NEWGUI/main/assets/"
 
 local Theme = {
     Background   = Color3.fromRGB(248, 248, 250),
@@ -36,228 +38,237 @@ local Theme = {
     Element      = Color3.fromRGB(232, 232, 236),
     ElementHover = Color3.fromRGB(220, 220, 225),
     Stroke       = Color3.fromRGB(200, 200, 206),
-    Text         = Color3.fromRGB(40,  40,  46),
+    Text         = Color3.fromRGB(40, 40, 46),
     TextDim      = Color3.fromRGB(120, 120, 128),
     Accent       = Color3.fromRGB(120, 120, 128),
-    AccentDark   = Color3.fromRGB(90,  90,  98),
+    AccentDark   = Color3.fromRGB(90, 90, 98),
     White        = Color3.fromRGB(255, 255, 255),
 }
 
--- // Asset loader -----------------------------------------------------
--- Downloads asset from GitHub once, caches it locally, converts it into
--- a Roblox-usable path with getcustomasset. Falls back gracefully.
-local assetCache   = {}
-local assetEnabled = (type(getcustomasset) == "function") and (type(writefile) == "function")
+local PulseUI = {}
 
-local function resolvePath(name)
-    if assetCache[name] ~= nil then return assetCache[name] end
+--========================================================================--
+-- UTIL
+--========================================================================--
 
-    local path = ""
-
-    if assetEnabled then
-        local ok, res = pcall(function()
-            if type(makefolder) == "function" then
-                pcall(makefolder, "PulseUI")
-                pcall(makefolder, "PulseUI/assets")
-            end
-            local file = ASSET_DIR .. name
-            if not (type(isfile) == "function" and isfile(file)) then
-                local data = game:HttpGet(ASSET_URL .. name, true)
-                writefile(file, data)
-            end
-            return getcustomasset(file)
-        end)
-        if ok and type(res) == "string" and res ~= "" then
-            path = res
-        end
+local function safe(fn, ...)
+    local args = {...}
+    return function(...)
+        local r = { pcall(fn, ...) }
+        return r
     end
-
-    assetCache[name] = path
-    return path
 end
 
--- // Helpers ----------------------------------------------------------
 local function new(class, props, parent)
     local inst = Instance.new(class)
-    for k, v in pairs(props or {}) do
-        if k ~= "Parent" then inst[k] = v end
+    if props then
+        for k, v in pairs(props) do
+            if k ~= "Parent" then
+                pcall(function() inst[k] = v end)
+            end
+        end
     end
-    inst.Parent = parent or (props and props.Parent)
+    if parent then inst.Parent = parent end
     return inst
 end
 
-local function corner(r, parent)
-    new("UICorner", { CornerRadius = UDim.new(0, r) }, parent)
+local function corner(radius, parent)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, radius)
+    c.Parent = parent
+    return c
 end
 
 local function stroke(color, thickness, parent)
-    new("UIStroke", {
-        Color = color or Theme.Stroke,
-        Thickness = thickness or 1,
-        ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-    }, parent)
+    local s = Instance.new("UIStroke")
+    s.Color = color or Theme.Stroke
+    s.Thickness = thickness or 1
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Parent = parent
+    return s
 end
 
-local function tween(inst, props, time, style)
-    local t = TweenService:Create(inst,
-        TweenInfo.new(time or 0.15, style or Enum.EasingStyle.Quad), props)
-    t:Play()
-    return t
+local function tween(inst, props, t)
+    local ok, tw = pcall(function()
+        return TweenService:Create(inst, TweenInfo.new(t or 0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
+    end)
+    if ok and tw then tw:Play() end
 end
 
--- // Icon helper (image + text fallback) ------------------------------
--- glyph is shown until (or unless) the PNG is loaded.
-local function makeIcon(parent, name, glyph, size, textSize, color)
-    size = size or 22
-    textSize = textSize or 16
+local function clamp(v, lo, hi)
+    if v < lo then return lo end
+    if v > hi then return hi end
+    return v
+end
+
+--========================================================================--
+-- ASSETS (optional - graceful fallback to text glyphs)
+--========================================================================--
+
+local assetCache = {}
+
+local function loadAssetUrl(name)
+    -- returns rbx asset path or "" if unavailable
+    if assetCache[name] ~= nil then return assetCache[name] end
+    local result = ""
+    local ok, res = pcall(function()
+        if type(getcustomasset) ~= "function" or type(writefile) ~= "function" then return "" end
+        pcall(function() makefolder("PulseUI") end)
+        pcall(function() makefolder("PulseUI/assets") end)
+        local file = "PulseUI/assets/" .. name
+        if not (type(isfile) == "function" and isfile(file)) then
+            writefile(file, game:HttpGet(ASSET_URL .. name))
+        end
+        return getcustomasset(file)
+    end)
+    if ok and type(res) == "string" and res ~= "" then
+        result = res
+    end
+    assetCache[name] = result
+    return result
+end
+
+-- icon: tries PNG, falls back to a text glyph
+local function makeIcon(parent, name, glyph, size, glyphSize, color)
+    size = size or 20
     color = color or Theme.TextDim
 
-    local img = new("ImageLabel", {
+    local holder = new("Frame", {
         Size = UDim2.fromOffset(size, size),
         BackgroundTransparency = 1,
-        Image = resolvePath(name),
-        ImageColor3 = color,
-        ImageTransparency = 0,
-        Visible = false,
     }, parent)
 
-    local glyphLabel = new("TextLabel", {
+    local img = new("ImageLabel", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Image = loadAssetUrl(name),
+        ImageColor3 = color,
+        Visible = false,
+    }, holder)
+
+    local label = new("TextLabel", {
         Size = UDim2.fromScale(1, 1),
         BackgroundTransparency = 1,
         Text = glyph or "",
         TextColor3 = color,
-        TextSize = textSize,
+        TextSize = glyphSize or (size - 4),
         Font = Enum.Font.GothamBold,
-    }, parent)
+        Visible = true,
+    }, holder)
 
     if img.Image ~= "" then
         task.spawn(function()
-            local ok = pcall(function() ContentProvider:PreloadAsync({ img }) end)
+            local ok = pcall(function()
+                game:GetService("ContentProvider"):PreloadAsync({ img })
+            end)
             if ok and img.IsLoaded then
                 img.Visible = true
-                glyphLabel.Visible = false
+                label.Visible = false
             end
         end)
     end
 
-    return img, glyphLabel
+    return holder, img, label
 end
 
--- // Window -----------------------------------------------------------
+local function setIconColor(holder, color)
+    for _, c in ipairs(holder:GetChildren()) do
+        if c:IsA("ImageLabel") then c.ImageColor3 = color end
+        if c:IsA("TextLabel") then c.TextColor3 = color end
+    end
+end
+
+--========================================================================--
+-- WINDOW
+--========================================================================--
+
 function PulseUI.CreateWindow(config)
     config = config or {}
-    local Window = { Tabs = {}, Flags = {} }
+
+    local Window = {}
+    Window.Tabs = {}
 
     local gui = new("ScreenGui", {
-        Name = "PulseUI",
+        Name = "PulseUI_" .. tostring(math.random(100000, 999999)),
         ResetOnSpawn = false,
-        IgnoreGuiInset = true,
         ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-    }, PlayerGui)
+        IgnoreGuiInset = true,
+    }, GUI_PARENT)
 
     local main = new("Frame", {
-        Name = "Main",
         Size = UDim2.fromOffset(760, 520),
         Position = UDim2.new(0.5, -380, 0.5, -260),
         BackgroundColor3 = Theme.Background,
         BorderSizePixel = 0,
-        Visible = false,
+        Active = true,
     }, gui)
     corner(10, main)
     stroke(Theme.Stroke, 1.5, main)
 
-    -- soft shadow layer
-    new("ImageLabel", {
-        Size = UDim2.fromScale(1.15, 1.22),
-        Position = UDim2.fromScale(-0.075, -0.11),
-        BackgroundTransparency = 1,
-        Image = "rbxassetid://5028857084",
-        ImageColor3 = Color3.fromRGB(0, 0, 0),
-        ImageTransparency = 0.93,
-        ScaleType = Enum.ScaleType.Slice,
-        ZIndex = 0,
-    }, main)
-
-    -- ---- top bar
+    -- top bar
     local top = new("Frame", {
-        Size = UDim2.new(1, 0, 0, 44),
+        Size = UDim2.new(1, 0, 0, 42),
         BackgroundColor3 = Theme.Panel,
         BorderSizePixel = 0,
-        ZIndex = 2,
     }, main)
     corner(10, top)
     new("Frame", {
-        Size = UDim2.new(1, 0, 0, 10),
-        Position = UDim2.new(0, 0, 1, -10),
+        Size = UDim2.new(1, 0, 0, 12),
+        Position = UDim2.new(0, 0, 1, -12),
         BackgroundColor3 = Theme.Panel,
         BorderSizePixel = 0,
-        ZIndex = 2,
     }, top)
 
-    makeIcon(top, "logo.png", "◆", 26, 18, Theme.Accent).Position = UDim2.fromOffset(12, 9)
+    local logo, _, _ = makeIcon(top, "logo.png", "P", 26, 16, Theme.Accent)
+    logo.Position = UDim2.fromOffset(12, 8)
 
     new("TextLabel", {
-        Size = UDim2.new(0, 300, 0, 20),
-        Position = UDim2.fromOffset(48, 5),
+        Size = UDim2.new(0, 400, 0, 18),
+        Position = UDim2.fromOffset(48, 6),
         BackgroundTransparency = 1,
         Text = config.Title or "PulseUI",
         TextColor3 = Theme.Text,
         TextSize = 16,
         Font = Enum.Font.GothamBold,
         TextXAlignment = Enum.TextXAlignment.Left,
-        ZIndex = 2,
     }, top)
 
     if config.SubTitle then
         new("TextLabel", {
-            Size = UDim2.new(0, 400, 0, 14),
-            Position = UDim2.fromOffset(48, 24),
+            Size = UDim2.new(0, 400, 0, 12),
+            Position = UDim2.fromOffset(48, 25),
             BackgroundTransparency = 1,
             Text = config.SubTitle,
             TextColor3 = Theme.TextDim,
             TextSize = 11,
             Font = Enum.Font.Gotham,
             TextXAlignment = Enum.TextXAlignment.Left,
-            ZIndex = 2,
         }, top)
     end
 
-    local function topBtn(name, glyph, offsetX, cb)
-        local holder = new("TextButton", {
+    local function topButton(iconName, glyph, offset, callback)
+        local btn = new("TextButton", {
             Size = UDim2.fromOffset(26, 26),
-            Position = UDim2.new(1, offsetX, 0.5, -13),
+            Position = UDim2.new(1, offset, 0.5, -13),
             AnchorPoint = Vector2.new(1, 0.5),
             BackgroundTransparency = 1,
             Text = "",
-            ZIndex = 3,
         }, top)
-        makeIcon(holder, name, glyph, 16, 14, Theme.TextDim)
-        holder.MouseEnter:Connect(function()
-            for _, c in ipairs(holder:GetChildren()) do
-                if c:IsA("ImageLabel") then tween(c, { ImageColor3 = Theme.Text }, 0.12) end
-                if c:IsA("TextLabel") and c.Visible then tween(c, { TextColor3 = Theme.Text }, 0.12) end
-            end
-        end)
-        holder.MouseLeave:Connect(function()
-            for _, c in ipairs(holder:GetChildren()) do
-                if c:IsA("ImageLabel") then tween(c, { ImageColor3 = Theme.TextDim }, 0.12) end
-                if c:IsA("TextLabel") and c.Visible then tween(c, { TextColor3 = Theme.TextDim }, 0.12) end
-            end
-        end)
-        holder.MouseButton1Click:Connect(cb)
-        return holder
+        local holder = makeIcon(btn, iconName, glyph, 16, 13, Theme.TextDim)
+        btn.MouseEnter:Connect(function() setIconColor(holder, Theme.Text) end)
+        btn.MouseLeave:Connect(function() setIconColor(holder, Theme.TextDim) end)
+        btn.MouseButton1Click:Connect(callback)
     end
 
-    topBtn("close.png",    "✕", -10, function() gui:Destroy() end)
-    topBtn("minimize.png", "—", -42, function() main.Visible = not main.Visible end)
+    topButton("close.png", "X", -10, function() gui:Destroy() end)
+    topButton("minimize.png", "_", -42, function() main.Visible = not main.Visible end)
 
-    -- ---- sidebar rail
+    -- sidebar
     local side = new("Frame", {
-        Size = UDim2.new(0, 56, 1, -44),
-        Position = UDim2.fromOffset(0, 44),
+        Size = UDim2.new(0, 54, 1, -42),
+        Position = UDim2.fromOffset(0, 42),
         BackgroundColor3 = Theme.Panel,
         BorderSizePixel = 0,
-        ZIndex = 2,
     }, main)
     new("UIListLayout", {
         Padding = UDim.new(0, 6),
@@ -266,13 +277,14 @@ function PulseUI.CreateWindow(config)
     }, side)
     new("UIPadding", { PaddingTop = UDim.new(0, 10) }, side)
 
-    -- ---- content
+    -- content
     local content = new("Frame", {
-        Size = UDim2.new(1, -56, 1, -44),
-        Position = UDim2.fromOffset(56, 44),
+        Size = UDim2.new(1, -54, 1, -42),
+        Position = UDim2.fromOffset(54, 42),
         BackgroundTransparency = 1,
     }, main)
 
+    -- tab bar (empty until user creates tabs)
     local tabBar = new("Frame", {
         Size = UDim2.new(1, -16, 0, 34),
         Position = UDim2.fromOffset(8, 6),
@@ -290,22 +302,38 @@ function PulseUI.CreateWindow(config)
         BackgroundTransparency = 1,
     }, content)
 
-    -- ---- tab factory
-    function Window:CreateTab(name, iconName, glyph)
-        iconName = iconName or "settings.png"
-        glyph = glyph or "•"
+    -- placeholder when no tabs exist
+    local placeholder = new("TextLabel", {
+        Size = UDim2.fromScale(1, 1),
+        BackgroundTransparency = 1,
+        Text = "Create your first tab:\nWindow:CreateTab(\"Main\", \"home.png\")",
+        TextColor3 = Theme.TextDim,
+        TextSize = 14,
+        Font = Enum.Font.Gotham,
+        TextWrapped = true,
+        Visible = true,
+    }, pages)
 
+    --====================================================================--
+    -- CREATE TAB (user-driven - no defaults)
+    --====================================================================--
+
+    function Window:CreateTab(name, iconName, glyph)
+        local tabData = {}
+        tabData.Name = name
+
+        -- sidebar icon button
         local sideBtn = new("TextButton", {
             Size = UDim2.fromOffset(36, 36),
             BackgroundColor3 = Theme.Element,
             BackgroundTransparency = 1,
             Text = "",
             LayoutOrder = #Window.Tabs + 1,
-            ZIndex = 3,
         }, side)
         corner(8, sideBtn)
-        makeIcon(sideBtn, iconName, glyph, 20, 15, Theme.TextDim)
+        local sHolder = makeIcon(sideBtn, iconName or "settings.png", glyph or "#", 20, 15, Theme.TextDim)
 
+        -- top tab button
         local tabBtn = new("TextButton", {
             Size = UDim2.new(0, 118, 1, 0),
             BackgroundColor3 = Theme.Element,
@@ -314,16 +342,24 @@ function PulseUI.CreateWindow(config)
             TextColor3 = Theme.TextDim,
             TextSize = 13,
             Font = Enum.Font.GothamMedium,
-            LayoutOrder = #Window.Tabs + 1,
         }, tabBar)
         corner(6, tabBtn)
 
+        local underline = new("Frame", {
+            Size = UDim2.new(1, -16, 0, 2),
+            Position = UDim2.new(0, 8, 1, -1),
+            BackgroundColor3 = Theme.Accent,
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+        }, tabBtn)
+
+        -- page
         local page = new("ScrollingFrame", {
             Size = UDim2.fromScale(1, 1),
             BackgroundTransparency = 1,
             BorderSizePixel = 0,
             ScrollBarThickness = 3,
-            ScrollBarImageColor3 = Theme.Accent,
+            ScrollBarImageColor3 = Theme.Stroke,
             CanvasSize = UDim2.new(0, 0, 0, 0),
             AutomaticCanvasSize = Enum.AutomaticSize.Y,
             Visible = false,
@@ -339,20 +375,9 @@ function PulseUI.CreateWindow(config)
             PaddingRight = UDim.new(0, 12),
         }, page)
 
-        local underline = new("Frame", {
-            Size = UDim2.new(1, -16, 0, 2),
-            Position = UDim2.new(0, 8, 1, -1),
-            BackgroundColor3 = Theme.Accent,
-            BackgroundTransparency = 1,
-            BorderSizePixel = 0,
-        }, tabBtn)
-        corner(1, underline)
-
-        local entry = {
-            Page = page, Button = tabBtn, Underline = underline, SideBtn = sideBtn,
-        }
-
         local Tab = {}
+        Tab.Name = name
+        Tab.Page = page
 
         function Tab:Select()
             for _, t in ipairs(Window.Tabs) do
@@ -360,22 +385,35 @@ function PulseUI.CreateWindow(config)
                 t.Button.BackgroundTransparency = 1
                 t.Button.TextColor3 = Theme.TextDim
                 t.Underline.BackgroundTransparency = 1
+                setIconColor(t.SideHolder, Theme.TextDim)
                 t.SideBtn.BackgroundTransparency = 1
             end
             page.Visible = true
+            placeholder.Visible = false
             tabBtn.BackgroundTransparency = 0.4
             tabBtn.TextColor3 = Theme.Text
             underline.BackgroundTransparency = 0
             sideBtn.BackgroundTransparency = 0.4
+            setIconColor(sHolder, Theme.Text)
         end
 
         sideBtn.MouseButton1Click:Connect(function() Tab:Select() end)
         tabBtn.MouseButton1Click:Connect(function() Tab:Select() end)
 
-        Window.Tabs[#Window.Tabs + 1] = entry
+        tabData.Page = page
+        tabData.Button = tabBtn
+        tabData.Underline = underline
+        tabData.SideBtn = sideBtn
+        tabData.SideHolder = sHolder
+
+        Window.Tabs[#Window.Tabs + 1] = tabData
+
+        -- first tab auto-selects
         if #Window.Tabs == 1 then Tab:Select() end
 
-        -- ============ ELEMENTS ============
+        --================================================================--
+        -- ELEMENTS
+        --================================================================--
 
         local function order() return #page:GetChildren() end
 
@@ -383,7 +421,7 @@ function PulseUI.CreateWindow(config)
             return new("TextLabel", {
                 Size = UDim2.new(1, -4, 0, 26),
                 BackgroundTransparency = 1,
-                Text = string.upper(label),
+                Text = string.upper(tostring(label)),
                 TextColor3 = Theme.TextDim,
                 TextSize = 12,
                 Font = Enum.Font.GothamBold,
@@ -396,7 +434,7 @@ function PulseUI.CreateWindow(config)
             return new("TextLabel", {
                 Size = UDim2.new(1, -4, 0, 28),
                 BackgroundTransparency = 1,
-                Text = text,
+                Text = tostring(text),
                 TextColor3 = Theme.TextDim,
                 TextSize = 13,
                 Font = Enum.Font.Gotham,
@@ -410,7 +448,7 @@ function PulseUI.CreateWindow(config)
             local btn = new("TextButton", {
                 Size = UDim2.new(1, -4, 0, 38),
                 BackgroundColor3 = Theme.Element,
-                Text = text,
+                Text = tostring(text),
                 TextColor3 = Theme.Text,
                 TextSize = 13,
                 Font = Enum.Font.GothamMedium,
@@ -418,15 +456,13 @@ function PulseUI.CreateWindow(config)
             }, page)
             corner(6, btn)
             stroke(Theme.Stroke, 1, btn)
-            btn.MouseEnter:Connect(function()
-                tween(btn, { BackgroundColor3 = Theme.ElementHover })
-            end)
-            btn.MouseLeave:Connect(function()
-                tween(btn, { BackgroundColor3 = Theme.Element })
-            end)
+
+            btn.MouseEnter:Connect(function() tween(btn, { BackgroundColor3 = Theme.ElementHover }) end)
+            btn.MouseLeave:Connect(function() tween(btn, { BackgroundColor3 = Theme.Element }) end)
             btn.MouseButton1Click:Connect(function()
                 tween(btn, { BackgroundColor3 = Theme.AccentDark }, 0.08)
-                task.delay(0.09, function()
+                spawn(function()
+                    wait(0.09)
                     tween(btn, { BackgroundColor3 = Theme.Element })
                 end)
                 if callback then
@@ -453,7 +489,7 @@ function PulseUI.CreateWindow(config)
                 Size = UDim2.new(1, -64, 1, 0),
                 Position = UDim2.fromOffset(12, 0),
                 BackgroundTransparency = 1,
-                Text = text,
+                Text = tostring(text),
                 TextColor3 = Theme.Text,
                 TextSize = 13,
                 Font = Enum.Font.GothamMedium,
@@ -477,23 +513,25 @@ function PulseUI.CreateWindow(config)
             corner(8, knob)
 
             local function set(v)
-                state = v
-                tween(pill, { BackgroundColor3 = v and Theme.Accent or Theme.ElementHover }, 0.2)
+                state = v and true or false
+                tween(pill, { BackgroundColor3 = state and Theme.Accent or Theme.ElementHover }, 0.2)
                 tween(knob, {
-                    Position = v and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8),
+                    Position = state and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8),
                 }, 0.2)
-                if callback then pcall(callback, v) end
+                if callback then pcall(callback, state) end
             end
 
             row.MouseButton1Click:Connect(function() set(not state) end)
 
-            local obj = {}
-            function obj:Set(v) set(v) end
-            function obj:Get() return state end
-            return obj
+            return {
+                Set = function(_, v) set(v) end,
+                Get = function() return state end,
+            }
         end
 
         function Tab:CreateSlider(text, min, max, default, callback)
+            min = min or 0
+            max = max or 100
             default = default or min
             local value = default
 
@@ -509,7 +547,7 @@ function PulseUI.CreateWindow(config)
                 Size = UDim2.new(1, -70, 0, 20),
                 Position = UDim2.fromOffset(12, 3),
                 BackgroundTransparency = 1,
-                Text = text,
+                Text = tostring(text),
                 TextColor3 = Theme.Text,
                 TextSize = 13,
                 Font = Enum.Font.GothamMedium,
@@ -535,7 +573,7 @@ function PulseUI.CreateWindow(config)
             }, row)
             corner(3, bar)
 
-            local ratio0 = math.clamp((default - min) / math.max(max - min, 1), 0, 1)
+            local ratio0 = clamp((default - min) / math.max(max - min, 1), 0, 1)
 
             local fill = new("Frame", {
                 Size = UDim2.new(ratio0, 0, 1, 0),
@@ -556,7 +594,7 @@ function PulseUI.CreateWindow(config)
             local dragging = false
 
             local function setFromX(x)
-                local rel = math.clamp((x - bar.AbsolutePosition.X) / math.max(bar.AbsoluteSize.X, 1), 0, 1)
+                local rel = clamp((x - bar.AbsolutePosition.X) / math.max(bar.AbsoluteSize.X, 1), 0, 1)
                 value = math.floor(min + (max - min) * rel + 0.5)
                 fill.Size = UDim2.new(rel, 0, 1, 0)
                 knob.Position = UDim2.new(rel, -7, 0.5, -7)
@@ -584,20 +622,21 @@ function PulseUI.CreateWindow(config)
                 end
             end)
 
-            local obj = {}
-            function obj:Set(v)
-                value = math.clamp(v, min, max)
-                local rel = math.clamp((value - min) / math.max(max - min, 1), 0, 1)
-                fill.Size = UDim2.new(rel, 0, 1, 0)
-                knob.Position = UDim2.new(rel, -7, 0.5, -7)
-                valueLabel.Text = tostring(value)
-                if callback then pcall(callback, value) end
-            end
-            function obj:Get() return value end
-            return obj
+            return {
+                Set = function(_, v)
+                    value = clamp(v, min, max)
+                    local rel = clamp((value - min) / math.max(max - min, 1), 0, 1)
+                    fill.Size = UDim2.new(rel, 0, 1, 0)
+                    knob.Position = UDim2.new(rel, -7, 0.5, -7)
+                    valueLabel.Text = tostring(value)
+                    if callback then pcall(callback, value) end
+                end,
+                Get = function() return value end,
+            }
         end
 
         function Tab:CreateDropdown(text, options, default, callback)
+            options = options or {}
             local selected = default or options[1]
             local open = false
 
@@ -614,7 +653,7 @@ function PulseUI.CreateWindow(config)
                 Size = UDim2.new(0, 150, 1, 0),
                 Position = UDim2.fromOffset(12, 0),
                 BackgroundTransparency = 1,
-                Text = text,
+                Text = tostring(text),
                 TextColor3 = Theme.Text,
                 TextSize = 13,
                 Font = Enum.Font.GothamMedium,
@@ -632,10 +671,15 @@ function PulseUI.CreateWindow(config)
                 TextXAlignment = Enum.TextXAlignment.Right,
             }, row)
 
-            local chev = makeIcon(row, "chevron.png", "▾", 14, 13, Theme.TextDim)
-            chev.Position = UDim2.new(1, -24, 0.5, -7)
-            chev.AnchorPoint = Vector2.new(0.5, 0.5)
-            chev.Position = UDim2.new(1, -20, 0.5, 0)
+            local chev = new("TextLabel", {
+                Size = UDim2.fromOffset(16, 16),
+                Position = UDim2.new(1, -26, 0.5, -8),
+                BackgroundTransparency = 1,
+                Text = "v",
+                TextColor3 = Theme.TextDim,
+                TextSize = 14,
+                Font = Enum.Font.GothamBold,
+            }, row)
 
             local list = new("Frame", {
                 Size = UDim2.new(1, -4, 0, 0),
@@ -648,7 +692,6 @@ function PulseUI.CreateWindow(config)
             stroke(Theme.Stroke, 1, list)
             new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, list)
 
-            local optButtons = {}
             for i, opt in ipairs(options) do
                 local b = new("TextButton", {
                     Size = UDim2.new(1, 0, 0, 30),
@@ -660,10 +703,11 @@ function PulseUI.CreateWindow(config)
                     LayoutOrder = i,
                 }, list)
                 b.MouseEnter:Connect(function()
-                    tween(b, { BackgroundTransparency = 0.85, BackgroundColor3 = Theme.Element })
+                    b.BackgroundTransparency = 0.85
+                    b.BackgroundColor3 = Theme.Element
                 end)
                 b.MouseLeave:Connect(function()
-                    tween(b, { BackgroundTransparency = 1 })
+                    b.BackgroundTransparency = 1
                 end)
                 b.MouseButton1Click:Connect(function()
                     selected = opt
@@ -671,26 +715,26 @@ function PulseUI.CreateWindow(config)
                     open = false
                     list.Visible = false
                     list.Size = UDim2.new(1, -4, 0, 0)
-                    tween(chev, { Rotation = 0 }, 0.2)
+                    chev.Text = "v"
+                    chev.Rotation = 0
                     if callback then pcall(callback, opt) end
                 end)
-                optButtons[i] = b
             end
 
             row.MouseButton1Click:Connect(function()
                 open = not open
                 list.Visible = true
                 list.Size = UDim2.new(1, -4, 0, open and (#options * 30) or 0)
-                tween(chev, { Rotation = open and 180 or 0 }, 0.2)
+                chev.Rotation = open and 180 or 0
                 if not open then
-                    task.delay(0.15, function() list.Visible = false end)
+                    spawn(function() wait(0.15) list.Visible = false end)
                 end
             end)
 
-            local obj = {}
-            function obj:Set(v) selected = v; current.Text = tostring(v) end
-            function obj:Get() return selected end
-            return obj
+            return {
+                Set = function(_, v) selected = v; current.Text = tostring(v) end,
+                Get = function() return selected end,
+            }
         end
 
         function Tab:CreateKeybind(text, default, callback)
@@ -709,7 +753,7 @@ function PulseUI.CreateWindow(config)
                 Size = UDim2.new(1, -110, 1, 0),
                 Position = UDim2.fromOffset(12, 0),
                 BackgroundTransparency = 1,
-                Text = text,
+                Text = tostring(text),
                 TextColor3 = Theme.Text,
                 TextSize = 13,
                 Font = Enum.Font.GothamMedium,
@@ -746,9 +790,9 @@ function PulseUI.CreateWindow(config)
                 end)
             end)
 
-            local obj = {}
-            function obj:Get() return key end
-            return obj
+            return {
+                Get = function() return key end,
+            }
         end
 
         function Tab:CreateParagraph(title, body)
@@ -763,7 +807,7 @@ function PulseUI.CreateWindow(config)
                 Size = UDim2.new(1, -20, 0, 22),
                 Position = UDim2.fromOffset(10, 6),
                 BackgroundTransparency = 1,
-                Text = title,
+                Text = tostring(title),
                 TextColor3 = Theme.Text,
                 TextSize = 13,
                 Font = Enum.Font.GothamBold,
@@ -773,7 +817,7 @@ function PulseUI.CreateWindow(config)
                 Size = UDim2.new(1, -20, 0, 40),
                 Position = UDim2.fromOffset(10, 28),
                 BackgroundTransparency = 1,
-                Text = body,
+                Text = tostring(body),
                 TextColor3 = Theme.TextDim,
                 TextSize = 12,
                 Font = Enum.Font.Gotham,
@@ -787,7 +831,9 @@ function PulseUI.CreateWindow(config)
         return Tab
     end
 
-    -- ---- dragging (mouse + touch)
+    --====================================================================--
+    -- DRAGGING (mouse + touch)
+    --====================================================================--
     do
         local dragging, dragStart, startPos = false, nil, nil
         top.InputBegan:Connect(function(input)
@@ -814,26 +860,36 @@ function PulseUI.CreateWindow(config)
         end)
     end
 
-    -- ---- toggle key
+    --====================================================================--
+    -- TOGGLE KEY (RightControl)
+    --====================================================================--
     UserInputService.InputBegan:Connect(function(input, processed)
         if not processed and input.KeyCode == Enum.KeyCode.RightControl then
             main.Visible = not main.Visible
         end
     end)
 
-    -- ---- open animation
-    main.Visible = true
-    local finalSize = UDim2.fromOffset(760, 520)
-    main.Size = UDim2.fromOffset(0, 0)
-    tween(main, { Size = finalSize }, 0.35, Enum.EasingStyle.Back)
-
     Window.Gui = gui
     Window.Main = main
     function Window:Destroy() gui:Destroy() end
     function Window:SetVisible(v) main.Visible = v end
 
-    print("[PulseUI] window created \"" .. (config.Title or "PulseUI") .. "\"")
     return Window
 end
 
+return PulseUI
+
+end)
+
+if not ok then
+    warn("[PulseUI] Failed to load: " .. tostring(PulseUI))
+    return
+end
+
+if not PulseUI then
+    warn("[PulseUI] Unknown error during load")
+    return
+end
+
+print("[PulseUI] v1.2 loaded successfully")
 return PulseUI
