@@ -101,11 +101,21 @@ local function getGuiParent()
     return LocalPlayer:WaitForChild("PlayerGui")
 end
 
+-- asset sources, tried in order (covers main AND master branches + CDN)
+local ASSET_SOURCES = {
+    "https://raw.githubusercontent.com/pulse-cheats/NEWGUI/main/assets/",
+    "https://raw.githubusercontent.com/pulse-cheats/NEWGUI/master/assets/",
+    "https://cdn.jsdelivr.net/gh/pulse-cheats/NEWGUI@main/assets/",
+    "https://cdn.jsdelivr.net/gh/pulse-cheats/NEWGUI@master/assets/",
+}
+
 --========================================================================--
 -- SMART ASSET LOADER
 -- "Home", "HOME", "my tab", "My_Tab" -> assets/home.png / assets/mytab.png
 --========================================================================--
 local assetCache = {}
+local loaderWarned = {}
+local assetSupport = (type(writefile) == "function") and (type(getcustomasset) == "function")
 
 local function resolveAssetName(name)
     name = tostring(name or "")
@@ -115,30 +125,55 @@ local function resolveAssetName(name)
     return clean:lower() .. ".png"
 end
 
+-- validates PNG/JPG binary (prevents 404-HTML being treated as an image)
+local function isImage(data)
+    if type(data) ~= "string" or #data < 16 then return false end
+    if data:sub(1, 8) == "\137PNG\13\10\26\10" then return true end
+    if data:sub(1, 2) == "\255\216" then return true end
+    return false
+end
+
 local function loadAssetUrl(name)
     name = resolveAssetName(name)
     if assetCache[name] ~= nil then return assetCache[name] end
 
     local result = ""
-    local ok, res = pcall(function()
+
+    local ok = pcall(function()
         if type(getcustomasset) ~= "function" or type(writefile) ~= "function" then
-            return ""
+            error("nofs")
         end
         pcall(function() makefolder("PulseUI") end)
         pcall(function() makefolder("PulseUI/assets") end)
         local file = "PulseUI/assets/" .. name
+
         if type(isfile) == "function" and isfile(file) then
-            return getcustomasset(file)
+            local cached = readfile(file)
+            if isImage(cached) then
+                result = getcustomasset(file)
+            end
+            return
         end
-        local data = game:HttpGet(ASSET_URL .. name)
-        if not data or data == "" then return "" end
-        writefile(file, data)
-        return getcustomasset(file)
+
+        for _, base in ipairs(ASSET_SOURCES) do
+            local okD, data = pcall(function() return game:HttpGet(base .. name) end)
+            if okD and type(data) == "string" and isImage(data) then
+                writefile(file, data)
+                result = getcustomasset(file)
+                return
+            end
+        end
     end)
 
-    if ok and type(res) == "string" and res ~= "" then
-        result = res
+    if not ok and not loaderWarned[name] then
+        loaderWarned[name] = true
+        if assetSupport == false then
+            warn("[PulseUI] executor has no writefile/getcustomasset - icon '" .. name .. "' uses text fallback")
+        else
+            warn("[PulseUI] could not load asset '" .. name .. "' from any source (check repo/branch)")
+        end
     end
+
     assetCache[name] = result
     return result
 end
