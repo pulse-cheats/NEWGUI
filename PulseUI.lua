@@ -28,15 +28,15 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 -- // Config
 local ASSET_BASE = "https://raw.githubusercontent.com/pulse-cheats/NEWGUI/main/assets/"
 local Theme = {
-    Background    = Color3.fromRGB(14, 14, 16),
-    Panel         = Color3.fromRGB(22, 22, 25),
-    Element       = Color3.fromRGB(30, 30, 34),
-    ElementHover  = Color3.fromRGB(38, 38, 43),
-    Stroke        = Color3.fromRGB(45, 45, 50),
-    Text          = Color3.fromRGB(235, 235, 235),
-    TextDim       = Color3.fromRGB(140, 140, 145),
-    Accent        = Color3.fromRGB(170, 255, 60),   -- lime green
-    AccentDark    = Color3.fromRGB(120, 190, 40),
+    Background    = Color3.fromRGB(248, 248, 250),  -- white background
+    Panel         = Color3.fromRGB(240, 240, 243),  -- light gray panels
+    Element       = Color3.fromRGB(232, 232, 236),  -- gray elements
+    ElementHover  = Color3.fromRGB(220, 220, 225),  -- darker on hover
+    Stroke        = Color3.fromRGB(200, 200, 206),  -- gray borders
+    Text          = Color3.fromRGB(40, 40, 46),     -- dark gray text
+    TextDim       = Color3.fromRGB(120, 120, 128),  -- gray accents
+    Accent        = Color3.fromRGB(120, 120, 128),  -- gray accent
+    AccentDark    = Color3.fromRGB(90, 90, 98),     -- dark gray on click
 }
 
 -- // Asset Loader
@@ -106,16 +106,16 @@ function PulseUI.CreateWindow(config)
         Parent = ScreenGui,
     })
     Corner(10, Main)
-    local mainStroke = Stroke(Theme.Accent, 1.5, Main)
+    local mainStroke = Stroke(Theme.Stroke, 1.5, Main)
 
-    -- Glow
+    -- Soft shadow
     Create("ImageLabel", {
         Size = UDim2.fromScale(1.25, 1.35),
         Position = UDim2.fromScale(-0.125, -0.175),
         BackgroundTransparency = 1,
         Image = "rbxassetid://5028857084",
-        ImageColor3 = Theme.Accent,
-        ImageTransparency = 0.88,
+        ImageColor3 = Color3.fromRGB(0, 0, 0),
+        ImageTransparency = 0.92,
         ScaleType = Enum.ScaleType.Slice,
         Parent = Main,
     })
@@ -401,7 +401,7 @@ function PulseUI.CreateWindow(config)
                 TweenService:Create(pill, TweenInfo.new(0.2), { BackgroundColor3 = v and Theme.Accent or Theme.ElementHover }):Play()
                 TweenService:Create(knob, TweenInfo.new(0.2), {
                     Position = v and UDim2.new(1, -19, 0.5, -8) or UDim2.new(0, 3, 0.5, -8),
-                    BackgroundColor3 = v and Theme.Background or Theme.TextDim,
+                    BackgroundColor3 = v and Color3.fromRGB(255,255,255) or Color3.fromRGB(255,255,255),
                 }):Play()
                 if callback then callback(v) end
             end
