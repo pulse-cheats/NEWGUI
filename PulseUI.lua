@@ -1030,53 +1030,77 @@ function PulseUI.CreateWindow(config)
     --====================================================================--
     -- RESTORE PILL (WindUI style, top-center)
     --====================================================================--
+    -- WindUI-style floating toggle: circular button, top-center, fades in/out
     local pill = new("TextButton", {
-        Name = "RestorePill",
-        Size = UDim2.fromOffset(48, 32),
-        Position = UDim2.new(0.5, -24, 0, 8),
+        Name = "ToggleUI",
+        Size = UDim2.fromOffset(42, 42),
+        Position = UDim2.new(0.5, -21, 0, 10),
         BackgroundColor3 = Theme.Background,
         Text = "",
         AutoButtonColor = false,
         Visible = false,
+        BackgroundTransparency = 1, -- animated in
         ZIndex = 100,
     }, gui)
-    corner(16, pill)
+    corner(21, pill) -- full circle
     stroke(Theme.Stroke, 1.5, pill)
     new("ImageLabel", {
-        Size = UDim2.new(1, 16, 1, 16),
+        Size = UDim2.new(1, 18, 1, 18),
         Position = UDim2.fromScale(0.5, 0.5),
         AnchorPoint = Vector2.new(0.5, 0.5),
         BackgroundTransparency = 1,
         Image = "rbxassetid://5028857084",
         ImageColor3 = Color3.fromRGB(0, 0, 0),
-        ImageTransparency = 0.92,
+        ImageTransparency = 0.9,
         ScaleType = Enum.ScaleType.Slice,
         ZIndex = 99,
     }, pill)
 
-    local pillIcon = makeIcon(pill, "logo", "P", 20, 12, Theme.TextDim)
-    pillIcon.Position = UDim2.new(0.5, -10, 0.5, -10)
+    local pillIcon = makeIcon(pill, "logo", "P", 22, 13, Theme.TextDim)
+    pillIcon.Position = UDim2.new(0.5, -11, 0.5, -11)
     pillIcon.ZIndex = 101
 
     makeDraggable(pill, pill)
 
+    local pillOpen = false
+    local function showPill()
+        if pillOpen then return end
+        pillOpen = true
+        pill.Visible = true
+        pill.BackgroundTransparency = 1
+        for _, c in ipairs(pillIcon:GetChildren()) do
+            if c:IsA("ImageLabel") then c.ImageTransparency = 1 end
+            if c:IsA("TextLabel") then c.TextTransparency = 1 end
+        end
+        tween(pill, { BackgroundTransparency = 0 }, 0.25)
+        for _, c in ipairs(pillIcon:GetChildren()) do
+            if c:IsA("ImageLabel") then tween(c, { ImageTransparency = 0 }, 0.25) end
+            if c:IsA("TextLabel") then tween(c, { TextTransparency = 0 }, 0.25) end
+        end
+    end
+    local function hidePill()
+        pillOpen = false
+        pill.Visible = false
+    end
+
     pill.MouseEnter:Connect(function()
-        tween(pill, { Size = UDim2.fromOffset(54, 35) }, 0.15)
+        tween(pill, { Size = UDim2.fromOffset(46, 46), Position = UDim2.new(0.5, -23, 0, 8) }, 0.15)
     end)
     pill.MouseLeave:Connect(function()
-        tween(pill, { Size = UDim2.fromOffset(48, 32) }, 0.15)
+        tween(pill, { Size = UDim2.fromOffset(42, 42), Position = UDim2.new(0.5, -21, 0, 10) }, 0.15)
     end)
     pill.MouseButton1Click:Connect(function()
         main.Visible = true
-        pill.Visible = false
+        hidePill()
     end)
 
-    -- keep pill in sync no matter how visibility changes
+    -- keep in sync with any visibility change
     spawn(function()
         while gui.Parent ~= nil do
-            local want = not main.Visible
-            if pill.Visible ~= want then
-                pill.Visible = want
+            if main.Visible and pillOpen then
+                hidePill()
+            elseif not main.Visible and not pillOpen then
+                showPill()
             end
             wait(0.1)
         end
